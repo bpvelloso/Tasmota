@@ -34,8 +34,60 @@
 uint8_t sr04_type = 1;
 real64_t distance;
 
+class ComputeVolume { // strategy interface
+public:
+  ComputeVolume() {};
+  virtual ~ComputeVolume() {};
+  virtual real64_t volume(real64_t distance) = 0;
+};
+
+class ComputeVolumeFortlevConica : public ComputeVolume {
+public:
+  ComputeVolumeFortlevConica(
+    real64_t low_rad, 
+    real64_t low_dist,
+    real64_t up_rad,
+    real64_t up_dist,
+    real64_t max_vol,
+    real64_t nbox = 1) : 
+      ComputeVolume(),
+      low_rad(low_rad),
+      low_dist(low_dist),
+      a((low_rad - up_rad) / (low_dist - up_dist)),
+      b(up_rad - a*up_dist),
+      max_vol(max_vol),
+      correction(1000.0 / 1070.0),
+      low_rad_sqr(low_rad * low_rad),
+      nbox(nbox) {
+    };
+  virtual ~ComputeVolumeFortlevConica() {};
+
+  virtual real64_t volume(real64_t distance) {
+    real64_t upper_radius = a*distance + b;  // radius = a*distance + b -> linear interpolation
+    real64_t result = (nbox * correction * 3.1416 * (low_dist - distance) * (upper_radius*(upper_radius + low_rad) + low_rad_sqr)) / (3000.0);
+    if (result > max_vol || result < 0) { // invalid volume reading
+      if (last_reading != -1) 
+        result = last_reading; // reuse last valid reading
+    } else { // valid reading
+      last_reading = result; // save
+    }
+    return result;
+  };
+private:
+  real64_t 
+    low_rad, 
+    low_dist, 
+    a, b, 
+    max_vol, 
+    correction, 
+    low_rad_sqr, 
+    nbox, 
+    last_reading = -1;
+};
+
 NewPing* sonar = nullptr;
 TasmotaSerial* sonar_serial = nullptr;
+ComputeVolume *computeVolume = nullptr;
 
 uint8_t Sr04TModeDetect(void)
 {
@@ -70,6 +122,14 @@ uint8_t Sr04TModeDetect(void)
       ClaimSerial();
     }
   }
+
+  computeVolume = new ComputeVolumeFortlevConica(
+    58.0, // lower radius (bottom)
+    97.0, // sensor total height
+    75.5, // upper radius (top)
+    21.0, // sensor distance to maximum level
+    1700.0, // max volume possible
+    2.0); // number of reservoirs
 
   AddLog_P2(LOG_LEVEL_INFO,PSTR("SR04: Mode %d"), sr04_type);
   return sr04_type;
@@ -158,17 +218,23 @@ void Sr04TReading(void) {
 #ifdef USE_WEBSERVER
 const char HTTP_SNS_DISTANCE[] PROGMEM =
   "{s}SR04 " D_DISTANCE "{m}%s" D_UNIT_CENTIMETER "{e}";  // {s} = <tr><th>, {m} = </th><td>, {e} = </td></tr>
+const char HTTP_SNS_VOLUME[] PROGMEM =
+  "{s}SR04 Volume {m}%s l {e}";  // {s} = <tr><th>, {m} = </th><td>, {e} = </td></tr>
 #endif  // USE_WEBSERVER
+
+#define D_JSON_VOLUME "Volume"
 
 void Sr04Show(bool json)
 {
-
   if (distance != 0) {                // Check if read failed
+    real64_t vol = computeVolume->volume(distance); // convert distance to volume
+    char volume_chr[33];
+    dtostrfd(vol, 3, volume_chr);
     char distance_chr[33];
     dtostrfd(distance, 3, distance_chr);
 
     if(json) {
-      ResponseAppend_P(PSTR(",\"SR04\":{\"" D_JSON_DISTANCE "\":%s}"), distance_chr);
+      ResponseAppend_P(PSTR(",\"SR04\":{\"" D_JSON_DISTANCE "\":%s, \"" D_JSON_VOLUME "\":%s}"), distance_chr, volume_chr);
 #ifdef USE_DOMOTICZ
       if (0 == tele_period) {
         DomoticzSensor(DZ_COUNT, distance_chr);  // Send distance as Domoticz Counter value
@@ -177,6 +243,7 @@ void Sr04Show(bool json)
 #ifdef USE_WEBSERVER
     } else {
       WSContentSend_PD(HTTP_SNS_DISTANCE, distance_chr);
+      WSContentSend_PD(HTTP_SNS_VOLUME, volume_chr);
 #endif  // USE_WEBSERVER
     }
   }

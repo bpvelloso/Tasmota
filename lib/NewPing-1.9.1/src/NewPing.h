@@ -171,9 +171,9 @@
 
 	// Probably shouldn't change these values unless you really know what you're doing.
 	#define NO_ECHO 0               // Value returned if there's no ping echo within the specified MAX_SENSOR_DISTANCE or max_cm_distance. Default=0
-	#define MAX_SENSOR_DELAY 5800   // Maximum uS it takes for sensor to start the ping. Default=5800
+	#define MAX_SENSOR_DELAY (2*5800)   // Maximum uS it takes for sensor to start the ping. Default=5800
 	#define ECHO_TIMER_FREQ 24      // Frequency to check for a ping echo (every 24uS is about 0.4cm accuracy). Default=24
-	#define PING_MEDIAN_DELAY 29000 // Microsecond delay between pings in the ping_median method. Default=29000
+	#define PING_MEDIAN_DELAY (2*29000) // Microsecond delay between pings in the ping_median method. Default=29000
 	#define PING_OVERHEAD 5         // Ping overhead in microseconds (uS). Default=5
 	#define PING_TIMER_OVERHEAD 13  // Ping timer overhead in microseconds (uS). Default=13
 	#if URM37_ENABLED == true
